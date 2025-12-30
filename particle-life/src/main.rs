@@ -1,12 +1,16 @@
 use macroquad::{prelude::*, rand::RandomRange};
-
-const NUM: usize = 500;
+use std::fs;
+const NUM: usize = 1000;
 const R: usize = 0;
 const G: usize = 1;
 const B: usize = 2;
 
-const RADIUS: f32 = 100.;
-const FRICTION: f32 = 0.5;
+const RADIUS: f32 = 200.;
+const DAMPING: f32 = 0.95;
+const EPS: f32 = 0.0001;
+const DT: f32 = 1.;
+
+const PARTICLE_SIZE: f32 = 2.0;
 
 struct Particle {
     pos: Vec2,
@@ -28,38 +32,34 @@ impl Life {
     }
 
     fn create_attraction_matrix() -> Vec<Vec<f32>> {
-        let matrix = vec![
-            // R   G   B
-            vec![1., -0.5, -0.5], //R
-            vec![-0.5, 1., -0.5], //G
-            vec![-0.5, -0.5, 1.], //B
-        ];
+            let file = "./matrix/chaos.txt";
 
-        return matrix;
+        return Self::read_file(file);
+    }
+
+    fn read_file(name: &str) -> Vec<Vec<f32>> {
+        let mut matrix = vec![];
+
+        let lines: Vec<String> = fs::read_to_string(name)
+            .expect("error")
+            .lines()
+            .map(|s| s.to_string())
+            .collect();
+
+        for l in &lines {
+            let numbers: Vec<f32> = l
+                .split(",")
+                .map(|i| i.parse::<f32>().unwrap())
+                .collect();
+            matrix.push(numbers);
+        }
+    
+        matrix
     }
 
     fn create_particles() -> Vec<Particle> {
         let mut particles = vec![];
         let colors = vec![R, G, B];
-
-        // particles.push(Particle {
-        //     pos: vec2(100., 100.),
-        //     vel: vec2(0.0, 0.0),
-        //     color: R
-        // });
-        //
-        // particles.push(Particle {
-        //     pos: vec2(150., 150.),
-        //     vel: vec2(0.0, 0.0),
-        //     color: R
-        // });
-        //
-        //
-        // particles.push(Particle {
-        //     pos: vec2(125., 125.),
-        //     vel: vec2(0.0, 0.0),
-        //     color: B
-        // });
 
         for _i in 0..NUM {
             let x = RandomRange::gen_range(0., screen_width());
@@ -99,18 +99,20 @@ impl Life {
     fn draw(&self) {
         for p in &self.particles {
             let color = Self::get_color(p.color);
-            draw_circle(p.pos.x, p.pos.y, 5., color)
+            // println!("{} {} {}", p.pos.x, p.pos.y, p.color);
+            draw_circle(p.pos.x, p.pos.y, PARTICLE_SIZE, color);
         }
     }
 
     fn mov(&mut self) {
         let len = self.particles.len();
 
+        dbg!(&self.att_matrix);
         for i in 0..len {
-            let p = &self.particles[i];
-            let pos = p.pos;
-            let color = p.color;
-            let mut new_vel = vec2(0., 0.);
+            let pos = self.particles[i].pos;
+            let color = self.particles[i].color;
+
+            let mut sum_force = vec2(0., 0.);
 
             for j in 0..len {
                 if i == j {
@@ -119,37 +121,39 @@ impl Life {
 
                 let n = &self.particles[j];
                 let a = self.att_matrix[color][n.color];
-                let f = Self::get_force(a, pos, n.pos.clone());
+                let dis = n.pos - pos;
+                let r = dis.length();
 
-                new_vel += (p.vel + f) * FRICTION;
+                if r > RADIUS {
+                    continue;
+                }
+                if r < EPS {
+                    continue;
+                }
+
+                let f = a / (r * r);
+                sum_force += dis * f;
             }
 
-            let p_mut = &mut self.particles[i];
-            p_mut.vel = new_vel;
-            p_mut.pos += new_vel;
+            let p = &mut self.particles[i];
+            p.vel += sum_force * DT;
+            p.vel *= DAMPING;
+            p.pos += p.vel;
 
-            if p_mut.pos.x < 0. || p_mut.pos.x > screen_width() {
-                p_mut.vel.x *= -1.;
-            }
-
-            if p_mut.pos.y < 0. || p_mut.pos.y > screen_height() {
-                p_mut.vel.y *= -1.;
-            }
+            Self::check_bouncing(p);
         }
     }
 
-    fn get_force(att: f32, particle: Vec2, neighbor: Vec2) -> Vec2 {
-        let dis = neighbor - particle;
-        let dis_mag = dis.length();
-
-        if dis_mag > RADIUS || dis_mag <= 0. {
-            return vec2(0., 0.);
+    fn check_bouncing(p: &mut Particle) {
+        if p.pos.x <= 0. || p.pos.x >= screen_width() {
+            p.pos.x = p.pos.x.clamp(0., screen_width());
+            p.vel.x *= -0.8;
         }
 
-        let f = att / dis_mag;
-        let fv = f * dis;
-
-        return fv;
+        if p.pos.y <= 0. || p.pos.y >= screen_height() {
+            p.pos.y = p.pos.y.clamp(0., screen_height());
+            p.vel.y *= -0.8;
+        }
     }
 }
 
