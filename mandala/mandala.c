@@ -11,7 +11,7 @@ void circle(float x, float y, float r) {
           y = y
         },
         r,
-        6,
+        4,
         BLACK
     );
 }
